@@ -1,0 +1,1 @@
+docker build --rm -t nba_elo_docker_image:0.0 -f Dockerfile .

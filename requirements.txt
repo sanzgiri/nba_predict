@@ -1,0 +1,37 @@
+# Core Data Science Libraries
+# Requires Python 3.10 or higher
+pandas>=2.0.0
+numpy>=1.24.0
+scikit-learn>=1.3.0
+statsmodels>=0.14.0
+
+# NBA Data APIs
+nba-api>=1.4.0
+basketball-reference-web-scraper>=4.15.0
+
+# Web Scraping & HTTP
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+
+# Utilities
+pytz>=2023.3
+geopy>=2.4.0
+unidecode>=1.3.7
+python-dateutil>=2.8.2
+
+# Visualization (for notebooks)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+
+# Web App (Streamlit)
+streamlit>=1.28.0
+
+# Machine Learning Extensions
+catboost>=1.2.0
+category-encoders>=2.6.0
+
+# Development & Testing
+pytest>=7.4.0
+jupyter>=1.0.0
+ipykernel>=6.25.0
