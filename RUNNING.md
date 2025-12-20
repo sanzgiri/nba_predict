@@ -38,6 +38,16 @@ To fetch recent season game data via NBA API:
 uv run python collect_data.py
 ```
 
+To fetch rosters, player game logs, and refresh minutes/depth charts:
+```bash
+uv run python collect_data.py --player-data --player-season-start 2024 --recent-minutes-days 14
+```
+
+To build a combined seasons file:
+```bash
+uv run python collect_data.py --combine-seasons --start-year 2019 --end-year 2024
+```
+
 ## 4) Validate the setup
 ```bash
 uv run python test_installation.py

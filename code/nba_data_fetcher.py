@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
-    from nba_api.stats.endpoints import leaguegamefinder, scoreboardv2, playergamelogs
+    from nba_api.stats.endpoints import leaguegamefinder, scoreboardv2, playergamelogs, commonteamroster
     from nba_api.stats.static import teams
     from nba_api.live.nba.endpoints import scoreboard
 except ImportError:
@@ -62,6 +62,10 @@ class NBADataFetcher:
         self.data_dir.mkdir(exist_ok=True)
         self.teams = teams.get_teams()
         self.team_dict = {t['abbreviation']: t for t in self.teams}
+
+    @staticmethod
+    def _season_string(season_start_year: int) -> str:
+        return f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
         
     @retry_on_failure(max_retries=3, delay=2.0)
     @rate_limit(calls_per_minute=60)
@@ -162,7 +166,7 @@ class NBADataFetcher:
         Returns:
             DataFrame with processed game data
         """
-        season_str = f"{season_start_year}-{str(season_start_year + 1)[-2:]}"
+        season_str = self._season_string(season_start_year)
         cache_file = self.data_dir / f"{season_start_year + 1}_season_data.csv"
         
         def fetch_func():
@@ -178,6 +182,172 @@ class NBADataFetcher:
         )
         
         return df
+
+    def fetch_team_rosters(self, season_start_year: int, force_refresh: bool = False) -> pd.DataFrame:
+        """
+        Fetch team rosters for a season.
+
+        Args:
+            season_start_year: Starting year of season (e.g., 2024 for 2024-25).
+            force_refresh: Force re-download even if cached.
+
+        Returns:
+            DataFrame with roster data for all teams.
+        """
+        season_str = self._season_string(season_start_year)
+        cache_file = self.data_dir / f"team_rosters_{season_start_year + 1}.csv"
+
+        def fetch_func():
+            rows = []
+            for team in self.teams:
+                team_id = team['id']
+                team_abbrev = team['abbreviation']
+                try:
+                    roster = commonteamroster.CommonTeamRoster(team_id=team_id, season=season_str)
+                    df = roster.get_data_frames()[0]
+                    df['TEAM_ABBREVIATION'] = team_abbrev
+                    rows.append(df)
+                    time.sleep(DELAY_BETWEEN_CALLS)
+                except Exception as e:
+                    logger.warning("Roster fetch failed for %s: %s", team_abbrev, e)
+            if not rows:
+                return pd.DataFrame()
+            return pd.concat(rows, ignore_index=True)
+
+        df = cache_dataframe(
+            str(cache_file),
+            fetch_func,
+            max_age_hours=24,
+            force_refresh=force_refresh
+        )
+        return df
+
+    def fetch_player_game_logs(self, season_start_year: int, force_refresh: bool = False) -> pd.DataFrame:
+        """
+        Fetch player game logs for a season.
+
+        Args:
+            season_start_year: Starting year of season (e.g., 2024 for 2024-25).
+            force_refresh: Force re-download even if cached.
+
+        Returns:
+            DataFrame with player game logs.
+        """
+        season_str = self._season_string(season_start_year)
+        cache_file = self.data_dir / f"{season_start_year + 1}_player_gamelogs.csv"
+
+        def fetch_func():
+            logs = playergamelogs.PlayerGameLogs(
+                season_nullable=season_str,
+                season_type_nullable='Regular Season'
+            )
+            return logs.get_data_frames()[0]
+
+        df = cache_dataframe(
+            str(cache_file),
+            fetch_func,
+            max_age_hours=24,
+            force_refresh=force_refresh
+        )
+        return df
+
+    @staticmethod
+    def _parse_minutes(value: object) -> float:
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return 0.0
+        if isinstance(value, (int, float)):
+            return float(value)
+        text = str(value)
+        if ':' in text:
+            mins, secs = text.split(':', 1)
+            try:
+                return float(mins) + float(secs) / 60.0
+            except ValueError:
+                return 0.0
+        try:
+            return float(text)
+        except ValueError:
+            return 0.0
+
+    def compute_recent_player_minutes(self, logs_df: pd.DataFrame, lookback_days: int = 14) -> pd.DataFrame:
+        """
+        Compute recent average minutes per player.
+
+        Args:
+            logs_df: DataFrame from fetch_player_game_logs.
+            lookback_days: How many days back to include.
+
+        Returns:
+            DataFrame with player minutes averages.
+        """
+        if logs_df.empty:
+            return pd.DataFrame()
+
+        df = logs_df.copy()
+        df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
+        cutoff = df['GAME_DATE'].max() - pd.Timedelta(days=lookback_days)
+        df = df[df['GAME_DATE'] >= cutoff]
+        df['MINUTES'] = df['MIN'].map(self._parse_minutes)
+
+        grouped = (
+            df.groupby(['PLAYER_ID', 'PLAYER_NAME', 'TEAM_ABBREVIATION'], as_index=False)
+            .agg(avg_minutes=('MINUTES', 'mean'), games=('MINUTES', 'count'))
+        )
+        grouped = grouped.rename(columns={
+            'PLAYER_ID': 'player_id',
+            'PLAYER_NAME': 'player_name',
+            'TEAM_ABBREVIATION': 'team',
+        })
+        return grouped
+
+    @staticmethod
+    def _position_to_numeric(position: str) -> float:
+        mapping = {
+            'PG': 0.0,
+            'SG': 1.0,
+            'SF': 2.0,
+            'PF': 3.0,
+            'C': 4.0,
+            'G': 1.0,
+            'F': 2.5,
+        }
+        if not position:
+            return 2.0
+        tokens = [token.strip().upper() for token in str(position).split('-')]
+        values = [mapping.get(token, 2.0) for token in tokens if token]
+        if not values:
+            return 2.0
+        return float(sum(values) / len(values))
+
+    def build_depth_charts(self, rosters_df: pd.DataFrame, minutes_df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Build a depth chart from rosters and recent minutes.
+
+        Returns:
+            DataFrame with columns: abb, position, rank, name.
+        """
+        if rosters_df.empty or minutes_df.empty:
+            return pd.DataFrame(columns=['abb', 'position', 'rank', 'name'])
+
+        rosters = rosters_df.copy()
+        rosters = rosters.rename(columns={
+            'PLAYER_ID': 'player_id',
+            'PLAYER': 'player_name',
+            'POSITION': 'position_raw',
+            'TEAM_ABBREVIATION': 'team',
+        })
+        merged = rosters.merge(minutes_df, on=['player_id', 'player_name', 'team'], how='left')
+        merged['avg_minutes'] = merged['avg_minutes'].fillna(0.0)
+        merged['position'] = merged['position_raw'].map(self._position_to_numeric)
+
+        merged = merged.sort_values(['team', 'position', 'avg_minutes'], ascending=[True, True, False])
+        merged['rank'] = merged.groupby(['team', 'position']).cumcount()
+
+        depth = merged[['team', 'position', 'rank', 'player_name']].rename(columns={
+            'team': 'abb',
+            'player_name': 'name',
+        })
+        return depth.reset_index(drop=True)
     
     def fetch_multiple_seasons(self, start_year: int, end_year: int) -> Dict[int, pd.DataFrame]:
         """

@@ -1,6 +1,15 @@
 archive/
 data/latest_game_eff.csv
 data/recent_player_minutes.csv
+data/
+predictions/
+logs/
+perf/
+notebooks/*.png
+notebooks/*.html
+notebooks/*.parquet
+notebooks/*.json
+notebooks/*.pdf
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

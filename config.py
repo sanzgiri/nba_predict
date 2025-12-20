@@ -90,6 +90,8 @@ DATA_PATHS = {
     'team_depth_charts': 'data/team_depth_charts.csv',
     'nba_locations': 'data/nba_locations_upd.csv',
     'recent_minutes': 'data/recent_player_minutes.csv',
+    'team_rosters': 'data/team_rosters_{year}.csv',
+    'player_game_logs': 'data/{year}_player_gamelogs.csv',
 }
 
 # Feature columns for modeling
