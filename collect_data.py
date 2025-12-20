@@ -107,8 +107,12 @@ def main():
                 df = fetcher.fetch_season_data(season_start, force_refresh=args.force)
 
                 if len(df) > 0:
+                    if 'date' in df.columns:
+                        df['date'] = pd.to_datetime(df['date'], errors='coerce')
+                        df = df.dropna(subset=['date'])
                     print(f"✓ Successfully fetched {len(df)} games")
-                    print(f"  Date range: {df['date'].min().date()} to {df['date'].max().date()}")
+                    if 'date' in df.columns and not df['date'].empty:
+                        print(f"  Date range: {df['date'].min().date()} to {df['date'].max().date()}")
                     print(f"  Sample: {df.iloc[0]['away_team']} @ {df.iloc[0]['home_team']}")
                     print(f"           {df.iloc[0]['away_score']}-{df.iloc[0]['home_score']}")
                     results[season_start + 1] = df
