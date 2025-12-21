@@ -45,7 +45,12 @@ uv run python collect_data.py --player-data --player-season-start 2024 --recent-
 
 To build a combined seasons file:
 ```bash
-uv run python collect_data.py --combine-seasons --start-year 2019 --end-year 2024
+uv run python collect_data.py --combine-seasons --combine-output data/all_seasons_latest.csv --start-year 2019 --end-year 2024
+```
+
+Daily update (refresh current season, rebuild combined file, run predictions):
+```bash
+tasks/daily_run.sh
 ```
 
 ## 4) Validate the setup

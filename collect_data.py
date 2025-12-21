@@ -28,6 +28,11 @@ def parse_args():
     parser.add_argument("--force", action="store_true", help="Force refresh cached data")
     parser.add_argument("--yes", action="store_true", help="Skip confirmation prompt")
     parser.add_argument("--combine-seasons", action="store_true", help="Write combined seasons CSV")
+    parser.add_argument(
+        "--combine-output",
+        default="",
+        help="Output path for combined seasons CSV (e.g., data/all_seasons_latest.csv)",
+    )
     parser.add_argument("--player-data", action="store_true", help="Fetch rosters and player logs")
     parser.add_argument(
         "--player-season-start",
@@ -44,7 +49,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def combine_seasons(data_dir: Path, start_year: int, end_year: int) -> Path:
+def combine_seasons(data_dir: Path, start_year: int, end_year: int, output_path: str = "") -> Path:
     dfs = []
     for year in range(start_year, end_year + 1):
         file_path = data_dir / f"{year + 1}_season_data.csv"
@@ -63,7 +68,10 @@ def combine_seasons(data_dir: Path, start_year: int, end_year: int) -> Path:
         combined['date'] = pd.to_datetime(combined['date'])
         combined = combined.sort_values('date').reset_index(drop=True)
 
-    output = data_dir / f"all_seasons_{start_year + 1}_{end_year + 1}.csv"
+    if output_path:
+        output = Path(output_path)
+    else:
+        output = data_dir / f"all_seasons_{start_year + 1}_{end_year + 1}.csv"
     combined.to_csv(output, index=False)
     logger.info("Combined seasons saved to %s (%d games)", output, len(combined))
     return output
@@ -143,6 +151,8 @@ def main():
             print(f"✗ Error fetching player data: {e}")
             logger.error("Failed to fetch player data: %s", e, exc_info=True)
 
+    combined = False
+
     # Summary
     print()
     print("=" * 70)
@@ -159,13 +169,14 @@ def main():
             print(f"  - {filepath} ({len(df)} games)")
 
     if args.combine_seasons:
-        output = combine_seasons(fetcher.data_dir, args.start_year, args.end_year)
+        output = combine_seasons(fetcher.data_dir, args.start_year, args.end_year, args.combine_output)
+        combined = output.exists()
         print(f"\nCombined seasons file: {output}")
 
     if args.player_data:
         print("\nPlayer data refreshed.")
 
-    if results or args.player_data:
+    if results or args.player_data or combined:
         print("\n✓ Data collection complete!")
         return 0
 

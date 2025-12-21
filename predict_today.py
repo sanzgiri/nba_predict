@@ -14,6 +14,7 @@ sys.path.insert(0, str(project_root / "code"))
 
 from nba_data_fetcher import NBADataFetcher
 from elo_predictor import ELOPredictor
+from config import CURRENT_SEASON
 
 
 def _get_game_date(game: pd.Series) -> pd.Timestamp:
@@ -27,6 +28,26 @@ def _get_game_date(game: pd.Series) -> pd.Timestamp:
         except Exception:
             pass
     return pd.Timestamp.now().normalize()
+
+def _pick_training_file() -> Path | None:
+    data_dir = Path("data")
+    candidates = [data_dir / "all_seasons_latest.csv"]
+
+    combined_files = sorted(
+        data_dir.glob("all_seasons_*.csv"),
+        key=lambda path: path.stat().st_mtime,
+        reverse=True,
+    )
+    candidates.extend(combined_files)
+
+    season_end = int(CURRENT_SEASON.get("year", 2025))
+    candidates.append(data_dir / f"{season_end}_season_data.csv")
+    candidates.append(data_dir / "2024_season_data.csv")
+
+    for path in candidates:
+        if path.is_file():
+            return path
+    return None
 
 
 def main():
@@ -42,23 +63,25 @@ def main():
     # Load and train on recent season data
     print("Loading historical data...")
     
-    # Try to load combined 5-year dataset first
-    data_file = Path("data/all_seasons_2020_2025.csv")
-    
-    if data_file.exists():
-        print("Using combined 5-year dataset (2020-2025)...")
+    # Try combined dataset first (latest if available)
+    data_file = _pick_training_file()
+    if data_file and data_file.is_file():
+        print(f"Using training data from {data_file}...")
         df = pd.read_csv(data_file)
-        df['date'] = pd.to_datetime(df['date'])
-    else:
-        # Fall back to single season
-        print("Using 2023-24 season data...")
-        data_file = Path("data/2024_season_data.csv")
-        if not data_file.exists():
-            print("Fetching 2023-24 season data...")
-            df = fetcher.fetch_season_data(2023)
-        else:
-            df = pd.read_csv(data_file)
+        if 'date' in df.columns:
             df['date'] = pd.to_datetime(df['date'])
+    else:
+        # Fall back to current season
+        season_start = int(CURRENT_SEASON.get("year", 2025)) - 1
+        season_file = Path(f"data/{season_start + 1}_season_data.csv")
+        if not season_file.exists():
+            print(f"Fetching {season_start}-{str(season_start + 1)[-2:]} season data...")
+            df = fetcher.fetch_season_data(season_start)
+        else:
+            print(f"Using {season_start}-{str(season_start + 1)[-2:]} season data...")
+            df = pd.read_csv(season_file)
+            if 'date' in df.columns:
+                df['date'] = pd.to_datetime(df['date'])
     
     print(f"Training on {len(df)} games...")
     predictor.train_on_games(df, track_accuracy=False)
