@@ -96,6 +96,11 @@ Manual run:
 launchctl start com.sanzgiri.nba_predictions.daily
 ```
 
+Manual run without launchd:
+```bash
+tasks/daily_run.sh
+```
+
 Logs:
 - `logs/launchd_daily.log`
 - `logs/launchd_daily.err`
