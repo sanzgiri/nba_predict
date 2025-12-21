@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sanzgiri.nba_predictions.daily</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>-lc</string>
+    <string>export PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; ./tasks/daily_run.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/sanzgiri/nba_predictions</string>
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>10</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HIST_START_YEAR</key>
+    <string>2019</string>
+    <key>PLAYER_MINUTES_DAYS</key>
+    <string>14</string>
+    <key>INJURY_SOURCE</key>
+    <string>auto</string>
+    <key>INJURY_URL</key>
+    <string></string>
+    <key>INJURY_FILE</key>
+    <string></string>
+    <key>FORCE_REFRESH</key>
+    <string>1</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/sanzgiri/nba_predictions/logs/launchd_daily.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/sanzgiri/nba_predictions/logs/launchd_daily.err</string>
+</dict>
+</plist>

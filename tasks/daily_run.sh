@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
+mkdir -p logs
 
 SEASON_END=$(uv run python - <<'PY'
 from config import CURRENT_SEASON
@@ -15,6 +16,11 @@ PLAYER_MINUTES_DAYS=${PLAYER_MINUTES_DAYS:-14}
 INJURY_SOURCE=${INJURY_SOURCE:-auto}
 INJURY_URL=${INJURY_URL:-}
 INJURY_FILE=${INJURY_FILE:-}
+FORCE_REFRESH=${FORCE_REFRESH:-1}
+force_args=()
+if [[ "$FORCE_REFRESH" != "0" ]]; then
+  force_args+=(--force)
+fi
 injury_args=(--injury-source "$INJURY_SOURCE")
 if [[ -n "$INJURY_URL" ]]; then
   injury_args+=(--injury-url "$INJURY_URL")
@@ -23,9 +29,9 @@ if [[ -n "$INJURY_FILE" ]]; then
   injury_args+=(--injury-file "$INJURY_FILE")
 fi
 
-uv run python collect_data.py --start-year "$SEASON_START" --end-year "$SEASON_START" --force --yes
+uv run python collect_data.py --start-year "$SEASON_START" --end-year "$SEASON_START" --yes "${force_args[@]}"
 uv run python collect_data.py --skip-games --player-data --player-season-start "$SEASON_START" \
-  --recent-minutes-days "$PLAYER_MINUTES_DAYS" --yes "${injury_args[@]}"
+  --recent-minutes-days "$PLAYER_MINUTES_DAYS" --yes "${force_args[@]}" "${injury_args[@]}"
 uv run python collect_data.py --skip-games --combine-seasons --combine-output data/all_seasons_latest.csv \
   --start-year "$HIST_START_YEAR" --end-year "$SEASON_START" --yes
 uv run python predict_today.py

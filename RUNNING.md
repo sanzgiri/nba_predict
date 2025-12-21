@@ -77,6 +77,31 @@ INJURY_SOURCE=auto INJURY_URL="<report-url>" tasks/daily_run.sh
 
 Recommended backtest window: train on 2021-22 and 2022-23, validate on 2023-24.
 
+Backtest calibration for `player_adj_elo_scale`:
+```bash
+uv run python backtest_player_adj_scale.py --scales 0,20,40,60,80,100
+```
+
+## 8) Daily job (launchd, macOS)
+Default schedule is 10:30 local time. Adjust the hour/minute in the plist to match 10:30 ET.
+
+Install:
+```bash
+cp tasks/launchd/com.sanzgiri.nba_predictions.daily.plist ~/Library/LaunchAgents/
+launchctl load -w ~/Library/LaunchAgents/com.sanzgiri.nba_predictions.daily.plist
+```
+
+Manual run:
+```bash
+launchctl start com.sanzgiri.nba_predictions.daily
+```
+
+Logs:
+- `logs/launchd_daily.log`
+- `logs/launchd_daily.err`
+
+If you move the repo, update `WorkingDirectory` and log paths in the plist. To supply an NBA injury report URL, set `INJURY_URL` in the plist.
+
 ## 4) Validate the setup
 ```bash
 uv run python test_installation.py

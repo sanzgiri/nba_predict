@@ -69,7 +69,7 @@ MODEL_PARAMS = {
     # Player adjustments
     'player_impact_lookback_days': 30,
     'player_impact_shrinkage_games': 10,
-    'player_adj_elo_scale': 60.0,
+    'player_adj_elo_scale': 100.0,
     'player_adj_enabled': True,
     'player_injury_enabled': True,
     'injury_source': 'auto',

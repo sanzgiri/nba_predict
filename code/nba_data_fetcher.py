@@ -276,13 +276,19 @@ class NBADataFetcher:
         except ValueError:
             return 0.0
 
-    def compute_recent_player_minutes(self, logs_df: pd.DataFrame, lookback_days: int = 14) -> pd.DataFrame:
+    def compute_recent_player_minutes(
+        self,
+        logs_df: pd.DataFrame,
+        lookback_days: int = 14,
+        as_of_date: Optional[pd.Timestamp] = None,
+    ) -> pd.DataFrame:
         """
         Compute recent average minutes per player.
 
         Args:
             logs_df: DataFrame from fetch_player_game_logs.
             lookback_days: How many days back to include.
+            as_of_date: Optional anchor date for the lookback window.
 
         Returns:
             DataFrame with player minutes averages.
@@ -292,8 +298,11 @@ class NBADataFetcher:
 
         df = logs_df.copy()
         df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
-        cutoff = df['GAME_DATE'].max() - pd.Timedelta(days=lookback_days)
-        df = df[df['GAME_DATE'] >= cutoff]
+        anchor = pd.to_datetime(as_of_date).normalize() if as_of_date is not None else df['GAME_DATE'].max()
+        if pd.isna(anchor):
+            return pd.DataFrame()
+        cutoff = anchor - pd.Timedelta(days=lookback_days)
+        df = df[(df['GAME_DATE'] >= cutoff) & (df['GAME_DATE'] <= anchor)]
         df['MINUTES'] = df['MIN'].map(self._parse_minutes)
 
         grouped = (
@@ -357,7 +366,7 @@ class NBADataFetcher:
         try:
             response = requests.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            tables = pd.read_html(io.StringIO(response.text))
+            tables = pd.read_html(io.StringIO(response.text), flavor="lxml")
             if not tables:
                 return pd.DataFrame(columns=['player_name', 'team', 'status', 'source'])
             df = tables[0]
@@ -537,11 +546,13 @@ class NBADataFetcher:
         logs_df: pd.DataFrame,
         lookback_days: Optional[int] = None,
         shrinkage_games: Optional[int] = None,
+        as_of_date: Optional[pd.Timestamp] = None,
     ) -> pd.DataFrame:
         """
         Compute a simple per-minute player impact metric from game logs.
 
         Uses Hollinger Game Score per minute with shrinkage toward 0.
+        If as_of_date is provided, the lookback window is anchored to that date.
         """
         if logs_df.empty:
             return pd.DataFrame()
@@ -553,8 +564,11 @@ class NBADataFetcher:
 
         df = logs_df.copy()
         df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
-        cutoff = df['GAME_DATE'].max() - pd.Timedelta(days=lookback_days)
-        df = df[df['GAME_DATE'] >= cutoff]
+        anchor = pd.to_datetime(as_of_date).normalize() if as_of_date is not None else df['GAME_DATE'].max()
+        if pd.isna(anchor):
+            return pd.DataFrame()
+        cutoff = anchor - pd.Timedelta(days=lookback_days)
+        df = df[(df['GAME_DATE'] >= cutoff) & (df['GAME_DATE'] <= anchor)]
 
         df['MINUTES'] = df['MIN'].map(self._parse_minutes)
         df = df[df['MINUTES'] > 0]
