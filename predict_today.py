@@ -14,7 +14,7 @@ sys.path.insert(0, str(project_root / "code"))
 
 from nba_data_fetcher import NBADataFetcher
 from elo_predictor import ELOPredictor
-from config import CURRENT_SEASON
+from config import CURRENT_SEASON, DATA_PATHS, MODEL_PARAMS
 
 
 def _get_game_date(game: pd.Series) -> pd.Timestamp:
@@ -49,6 +49,17 @@ def _pick_training_file() -> Path | None:
             return path
     return None
 
+def _load_team_adjustments() -> dict:
+    path = Path(DATA_PATHS.get('team_player_adjustments', 'data/team_player_adjustments_latest.csv'))
+    if not path.exists():
+        return {}
+    df = pd.read_csv(path)
+    if df.empty:
+        return {}
+    if 'team' not in df.columns or 'player_adj_elo' not in df.columns:
+        return {}
+    return dict(zip(df['team'], df['player_adj_elo']))
+
 
 def main():
     print("=" * 70)
@@ -59,6 +70,9 @@ def main():
     # Initialize
     fetcher = NBADataFetcher()
     predictor = ELOPredictor()
+    player_adjustments = {}
+    if MODEL_PARAMS.get('player_adj_enabled', True):
+        player_adjustments = _load_team_adjustments()
     
     # Load and train on recent season data
     print("Loading historical data...")
@@ -108,11 +122,16 @@ def main():
         away_team = game['away_team']
         game_date = _get_game_date(game)
         
+        home_adj = float(player_adjustments.get(home_team, 0.0))
+        away_adj = float(player_adjustments.get(away_team, 0.0))
+
         # Make prediction
         home_prob, home_score, away_score = predictor.predict_game(
             home_team,
             away_team,
-            game_date=game_date
+            game_date=game_date,
+            home_elo_adjustment=home_adj,
+            away_elo_adjustment=away_adj,
         )
         
         # Get ELO ratings
@@ -122,6 +141,8 @@ def main():
         # Format output
         print(f"Game {idx + 1}: {away_team} @ {home_team}")
         print(f"  ELO Ratings: {away_team} {away_elo:.0f} | {home_team} {home_elo:.0f}")
+        if home_adj or away_adj:
+            print(f"  Player Adj (ELO): {away_team} {away_adj:+.1f} | {home_team} {home_adj:+.1f}")
         print(f"  Predicted Score: {away_score:.1f} - {home_score:.1f}")
         print(f"  Win Probability: {away_team} {(1-home_prob)*100:.1f}% | {home_team} {home_prob*100:.1f}%")
         
@@ -142,6 +163,8 @@ def main():
             'home_team': home_team,
             'away_elo': predictor.get_rating(away_team),
             'home_elo': predictor.get_rating(home_team),
+            'away_player_adj_elo': away_adj,
+            'home_player_adj_elo': home_adj,
             'predicted_away_score': away_score,
             'predicted_home_score': home_score,
             'home_win_probability': home_prob,

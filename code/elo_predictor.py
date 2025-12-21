@@ -310,7 +310,14 @@ class ELOPredictor:
             self.ratings[team] = self.initial_elo
         return self.ratings[team]
     
-    def predict_game(self, home_team: str, away_team: str, game_date: Optional[datetime] = None) -> Tuple[float, float, float]:
+    def predict_game(
+        self,
+        home_team: str,
+        away_team: str,
+        game_date: Optional[datetime] = None,
+        home_elo_adjustment: float = 0.0,
+        away_elo_adjustment: float = 0.0,
+    ) -> Tuple[float, float, float]:
         """
         Predict the outcome of a game
         
@@ -330,8 +337,8 @@ class ELOPredictor:
                 game_date = game_date.tz_convert(None)
             game_date = game_date.normalize()
 
-        home_elo = self.get_rating(home_team)
-        away_elo = self.get_rating(away_team)
+        home_elo = self.get_rating(home_team) + home_elo_adjustment
+        away_elo = self.get_rating(away_team) + away_elo_adjustment
         
         # Adjust for home court advantage
         home_elo_adj = home_elo + HOME_ADVANTAGE

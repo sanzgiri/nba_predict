@@ -3,13 +3,18 @@ NBA Data Fetcher - Modern data collection using nba_api
 Collects game results, team stats, and player data for specified seasons
 """
 
-import pandas as pd
+import io
+import logging
+import re
+import sys
 import time
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional, Tuple
-import logging
 from pathlib import Path
-import sys
+from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
+import requests
+from unidecode import unidecode
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -23,13 +28,15 @@ except ImportError:
 
 try:
     from utils import retry_on_failure, rate_limit, logger, cache_dataframe
-    from config import TEAM_ABBREVIATION_MAPPINGS, DATA_PATHS
+    from config import TEAM_ABBREVIATION_MAPPINGS, DATA_PATHS, MODEL_PARAMS, NBA_TEAMS
 except ImportError:
     # Fallback if running standalone
     logging.basicConfig(level=logging.INFO)
     logger = logging.getLogger(__name__)
     TEAM_ABBREVIATION_MAPPINGS = {}
     DATA_PATHS = {}
+    MODEL_PARAMS = {}
+    NBA_TEAMS = set()
     
     # Simple fallbacks for decorators
     def retry_on_failure(*args, **kwargs):
@@ -301,6 +308,154 @@ class NBADataFetcher:
         return grouped
 
     @staticmethod
+    def _normalize_player_name(name: object) -> str:
+        text = unidecode(str(name)).lower()
+        return re.sub(r"[^a-z0-9]", "", text)
+
+    @staticmethod
+    def _normalize_team_abbrev(team: object) -> str:
+        if team is None:
+            return ""
+        text = str(team).strip().upper()
+        if text in NBA_TEAMS:
+            return text
+        return TEAM_ABBREVIATION_MAPPINGS.get(text, text)
+
+    def _normalize_injury_df(self, df: pd.DataFrame) -> pd.DataFrame:
+        if df.empty:
+            return pd.DataFrame(columns=['player_name', 'team', 'status', 'source'])
+        lower_cols = {col.lower(): col for col in df.columns}
+
+        name_col = None
+        team_col = None
+        status_col = None
+        for candidate in ['player', 'player_name', 'name']:
+            if candidate in lower_cols:
+                name_col = lower_cols[candidate]
+                break
+        for candidate in ['team', 'team_abbreviation', 'abbr', 'team_tricode', 'teamabbr']:
+            if candidate in lower_cols:
+                team_col = lower_cols[candidate]
+                break
+        for candidate in ['status', 'injury_status', 'game_status', 'availability']:
+            if candidate in lower_cols:
+                status_col = lower_cols[candidate]
+                break
+
+        if not name_col or not team_col or not status_col:
+            logger.warning("Injury report missing required columns")
+            return pd.DataFrame(columns=['player_name', 'team', 'status', 'source'])
+
+        normalized = df[[name_col, team_col, status_col]].copy()
+        normalized.columns = ['player_name', 'team', 'status']
+        normalized['team'] = normalized['team'].map(self._normalize_team_abbrev)
+        return normalized
+
+    def _fetch_rotowire_injuries(self) -> pd.DataFrame:
+        url = "https://www.rotowire.com/basketball/tables/injury-report.php"
+        headers = {"User-Agent": "Mozilla/5.0"}
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            tables = pd.read_html(io.StringIO(response.text))
+            if not tables:
+                return pd.DataFrame(columns=['player_name', 'team', 'status', 'source'])
+            df = tables[0]
+        except Exception as exc:
+            logger.warning("Rotowire injury fetch failed: %s", exc)
+            return pd.DataFrame(columns=['player_name', 'team', 'status', 'source'])
+
+        normalized = self._normalize_injury_df(df)
+        if normalized.empty:
+            return normalized
+        normalized['source'] = 'rotowire'
+        return normalized
+
+    def load_injury_report(
+        self,
+        source: str = "auto",
+        url: str = "",
+        filepath: str = "",
+        force_refresh: bool = False,
+    ) -> pd.DataFrame:
+        if not filepath and not force_refresh:
+            cached_path_value = DATA_PATHS.get('injury_report', '')
+            cached_path = Path(cached_path_value) if cached_path_value else None
+            if cached_path and cached_path.is_file():
+                try:
+                    return self._normalize_injury_df(pd.read_csv(cached_path))
+                except Exception as exc:
+                    logger.warning("Failed to read cached injury report %s: %s", cached_path, exc)
+
+        if filepath:
+            path = Path(filepath)
+            if path.exists():
+                try:
+                    if path.suffix.lower() == ".json":
+                        data = pd.read_json(path)
+                        return self._normalize_injury_df(data)
+                    return self._normalize_injury_df(pd.read_csv(path))
+                except Exception as exc:
+                    logger.warning("Failed to read injury file %s: %s", path, exc)
+
+        if source == "none":
+            return pd.DataFrame(columns=['player_name', 'team', 'status', 'source'])
+
+        if source in ("nba", "auto") and url:
+            try:
+                if url.endswith(".json"):
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    data = pd.json_normalize(response.json())
+                    normalized = self._normalize_injury_df(data)
+                else:
+                    if url.endswith(".csv"):
+                        data = pd.read_csv(url)
+                    else:
+                        data = pd.read_html(url)[0]
+                    normalized = self._normalize_injury_df(data)
+                if not normalized.empty:
+                    normalized['source'] = 'nba'
+                    return normalized
+            except Exception as exc:
+                logger.warning("NBA injury report fetch failed: %s", exc)
+
+        if source in ("rotowire", "auto"):
+            return self._fetch_rotowire_injuries()
+
+        return pd.DataFrame(columns=['player_name', 'team', 'status', 'source'])
+
+    def apply_injury_adjustments(
+        self,
+        minutes_df: pd.DataFrame,
+        injuries_df: pd.DataFrame,
+        out_statuses: Optional[List[str]] = None,
+    ) -> pd.DataFrame:
+        if minutes_df.empty or injuries_df.empty:
+            return minutes_df
+
+        out_statuses = out_statuses or MODEL_PARAMS.get('injury_out_statuses', [])
+        out_set = {str(status).strip().lower() for status in out_statuses}
+        injuries = injuries_df.copy()
+        injuries['status_norm'] = injuries['status'].astype(str).str.lower().str.strip()
+        injuries = injuries[injuries['status_norm'].isin(out_set)]
+        if injuries.empty:
+            return minutes_df
+
+        minutes = minutes_df.copy()
+        minutes['name_norm'] = minutes['player_name'].map(self._normalize_player_name)
+        minutes['team_norm'] = minutes['team'].map(self._normalize_team_abbrev)
+        injuries['name_norm'] = injuries['player_name'].map(self._normalize_player_name)
+        injuries['team_norm'] = injuries['team'].map(self._normalize_team_abbrev)
+        injuries['key'] = injuries['name_norm'] + "::" + injuries['team_norm']
+        minutes['key'] = minutes['name_norm'] + "::" + minutes['team_norm']
+
+        out_keys = set(injuries['key'])
+        minutes.loc[minutes['key'].isin(out_keys), 'avg_minutes'] = 0.0
+
+        return minutes.drop(columns=['name_norm', 'team_norm', 'key'])
+
+    @staticmethod
     def _position_to_numeric(position: str) -> float:
         mapping = {
             'PG': 0.0,
@@ -376,6 +531,108 @@ class NBADataFetcher:
                 continue
         
         return results
+
+    def compute_player_impact(
+        self,
+        logs_df: pd.DataFrame,
+        lookback_days: Optional[int] = None,
+        shrinkage_games: Optional[int] = None,
+    ) -> pd.DataFrame:
+        """
+        Compute a simple per-minute player impact metric from game logs.
+
+        Uses Hollinger Game Score per minute with shrinkage toward 0.
+        """
+        if logs_df.empty:
+            return pd.DataFrame()
+
+        if lookback_days is None:
+            lookback_days = MODEL_PARAMS.get('player_impact_lookback_days', 30)
+        if shrinkage_games is None:
+            shrinkage_games = MODEL_PARAMS.get('player_impact_shrinkage_games', 10)
+
+        df = logs_df.copy()
+        df['GAME_DATE'] = pd.to_datetime(df['GAME_DATE'])
+        cutoff = df['GAME_DATE'].max() - pd.Timedelta(days=lookback_days)
+        df = df[df['GAME_DATE'] >= cutoff]
+
+        df['MINUTES'] = df['MIN'].map(self._parse_minutes)
+        df = df[df['MINUTES'] > 0]
+
+        game_score = (
+            df['PTS']
+            + 0.4 * df['FGM']
+            - 0.7 * df['FGA']
+            - 0.4 * (df['FTA'] - df['FTM'])
+            + 0.7 * df['OREB']
+            + 0.3 * df['DREB']
+            + df['AST']
+            + 0.7 * df['STL']
+            + 0.7 * df['BLK']
+            - 0.4 * df['PF']
+            - df['TOV']
+        )
+        df['IMPACT_PER_MIN'] = game_score / df['MINUTES']
+
+        grouped = (
+            df.groupby(['PLAYER_ID', 'PLAYER_NAME', 'TEAM_ABBREVIATION'], as_index=False)
+            .agg(
+                impact_per_min=('IMPACT_PER_MIN', 'mean'),
+                games=('IMPACT_PER_MIN', 'count'),
+                minutes=('MINUTES', 'sum')
+            )
+        )
+
+        shrink = grouped['games'] / (grouped['games'] + shrinkage_games)
+        grouped['impact_per_min'] = grouped['impact_per_min'] * shrink
+
+        grouped = grouped.rename(columns={
+            'PLAYER_ID': 'player_id',
+            'PLAYER_NAME': 'player_name',
+            'TEAM_ABBREVIATION': 'team',
+        })
+        return grouped
+
+    def build_team_player_adjustments(
+        self,
+        impact_df: pd.DataFrame,
+        minutes_df: pd.DataFrame,
+        scale: Optional[float] = None,
+    ) -> pd.DataFrame:
+        """
+        Aggregate player impacts to team-level adjustments.
+        Returns per-team ELO adjustments.
+        """
+        if impact_df.empty or minutes_df.empty:
+            return pd.DataFrame(columns=['team', 'team_impact_per_min', 'player_adj_elo'])
+
+        if scale is None:
+            scale = MODEL_PARAMS.get('player_adj_elo_scale', 60.0)
+
+        merged = impact_df.merge(
+            minutes_df,
+            on=['player_id', 'player_name', 'team'],
+            how='left'
+        )
+        merged['avg_minutes'] = merged['avg_minutes'].fillna(0.0)
+        merged['weighted_impact'] = merged['impact_per_min'] * merged['avg_minutes']
+
+        team_agg = (
+            merged.groupby('team', as_index=False)
+            .agg(weighted_impact=('weighted_impact', 'sum'), team_minutes=('avg_minutes', 'sum'))
+        )
+        team_agg['team_minutes'] = team_agg['team_minutes'].replace(0.0, 1.0)
+        team_agg['team_impact_per_min'] = team_agg['weighted_impact'] / team_agg['team_minutes']
+
+        league_avg = (
+            team_agg['weighted_impact'].sum() / team_agg['team_minutes'].sum()
+            if team_agg['team_minutes'].sum() > 0 else 0.0
+        )
+
+        team_agg['impact_delta'] = team_agg['team_impact_per_min'] - league_avg
+        team_agg['player_adj_elo'] = team_agg['impact_delta'] * scale
+
+        return team_agg[['team', 'team_impact_per_min', 'player_adj_elo']]
     
     @retry_on_failure(max_retries=3, delay=2.0)
     @rate_limit(calls_per_minute=60)

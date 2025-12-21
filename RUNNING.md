@@ -43,6 +43,24 @@ To fetch rosters, player game logs, and refresh minutes/depth charts:
 uv run python collect_data.py --player-data --player-season-start 2024 --recent-minutes-days 14
 ```
 
+This also writes:
+- `data/player_impact_<year>.csv`
+- `data/team_player_adjustments_latest.csv` (used by daily predictions when enabled)
+- `data/injury_report_latest.csv` (when an injury source is available)
+
+Player adjustments can be toggled and tuned in `config.py`:
+- `player_adj_enabled`
+- `player_adj_elo_scale`
+- `player_injury_enabled`
+- `injury_out_statuses`
+
+Optional injury inputs:
+```bash
+uv run python collect_data.py --player-data --injury-source auto
+uv run python collect_data.py --player-data --injury-source nba --injury-url "<report-url>"
+uv run python collect_data.py --player-data --injury-file data/injury_report.csv
+```
+
 To build a combined seasons file:
 ```bash
 uv run python collect_data.py --combine-seasons --combine-output data/all_seasons_latest.csv --start-year 2019 --end-year 2024
@@ -52,6 +70,12 @@ Daily update (refresh current season, rebuild combined file, run predictions):
 ```bash
 tasks/daily_run.sh
 ```
+To pass injury inputs into the daily job:
+```bash
+INJURY_SOURCE=auto INJURY_URL="<report-url>" tasks/daily_run.sh
+```
+
+Recommended backtest window: train on 2021-22 and 2022-23, validate on 2023-24.
 
 ## 4) Validate the setup
 ```bash

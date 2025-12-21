@@ -65,6 +65,15 @@ MODEL_PARAMS = {
     'score_lookback_games': 10,
     'score_elo_weight': 1.0,
     'score_min_points': 80,
+
+    # Player adjustments
+    'player_impact_lookback_days': 30,
+    'player_impact_shrinkage_games': 10,
+    'player_adj_elo_scale': 60.0,
+    'player_adj_enabled': True,
+    'player_injury_enabled': True,
+    'injury_source': 'auto',
+    'injury_out_statuses': ['out', 'out for season'],
     
     # Training parameters
     'lookback_games': 4,            # Number of games for recent form
@@ -92,6 +101,9 @@ DATA_PATHS = {
     'recent_minutes': 'data/recent_player_minutes.csv',
     'team_rosters': 'data/team_rosters_{year}.csv',
     'player_game_logs': 'data/{year}_player_gamelogs.csv',
+    'player_impact': 'data/player_impact_{year}.csv',
+    'team_player_adjustments': 'data/team_player_adjustments_latest.csv',
+    'injury_report': 'data/injury_report_latest.csv',
 }
 
 # Feature columns for modeling

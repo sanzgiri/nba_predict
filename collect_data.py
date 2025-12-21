@@ -17,7 +17,7 @@ sys.path.insert(0, str(code_dir))
 
 from nba_data_fetcher import NBADataFetcher
 from utils import logger
-from config import CURRENT_SEASON, DATA_PATHS
+from config import CURRENT_SEASON, DATA_PATHS, MODEL_PARAMS
 
 
 def parse_args():
@@ -45,6 +45,22 @@ def parse_args():
         type=int,
         default=14,
         help="Lookback window for recent minutes (days)",
+    )
+    parser.add_argument(
+        "--injury-source",
+        default=MODEL_PARAMS.get('injury_source', 'auto'),
+        choices=["auto", "nba", "rotowire", "none"],
+        help="Injury report source for minutes adjustments",
+    )
+    parser.add_argument(
+        "--injury-url",
+        default="",
+        help="Optional URL for NBA injury report (CSV/JSON/HTML table)",
+    )
+    parser.add_argument(
+        "--injury-file",
+        default="",
+        help="Optional local CSV/JSON file for injury report",
     )
     return parser.parse_args()
 
@@ -138,15 +154,47 @@ def main():
             rosters = fetcher.fetch_team_rosters(args.player_season_start, force_refresh=args.force)
             logs = fetcher.fetch_player_game_logs(args.player_season_start, force_refresh=args.force)
             minutes = fetcher.compute_recent_player_minutes(logs, lookback_days=args.recent_minutes_days)
+            injuries = pd.DataFrame()
+            if MODEL_PARAMS.get('player_injury_enabled', False) and args.injury_source != "none":
+                injuries = fetcher.load_injury_report(
+                    source=args.injury_source,
+                    url=args.injury_url,
+                    filepath=args.injury_file,
+                    force_refresh=args.force,
+                )
+                if not injuries.empty:
+                    minutes = fetcher.apply_injury_adjustments(
+                        minutes,
+                        injuries,
+                        out_statuses=MODEL_PARAMS.get('injury_out_statuses', []),
+                    )
             depth = fetcher.build_depth_charts(rosters, minutes)
+            impact = fetcher.compute_player_impact(logs)
+            team_adjustments = fetcher.build_team_player_adjustments(
+                impact,
+                minutes,
+                scale=MODEL_PARAMS.get('player_adj_elo_scale', 60.0),
+            )
 
             minutes_path = Path(DATA_PATHS['recent_minutes'])
             minutes.to_csv(minutes_path, index=False)
             depth_path = Path(DATA_PATHS['team_depth_charts'])
             depth.to_csv(depth_path, index=False)
+            if not injuries.empty:
+                injuries_path = Path(DATA_PATHS['injury_report'])
+                injuries.to_csv(injuries_path, index=False)
+            impact_path = Path(DATA_PATHS['player_impact'].format(year=args.player_season_start + 1))
+            impact.to_csv(impact_path, index=False)
+            adjustments_path = Path(DATA_PATHS['team_player_adjustments'])
+            team_adjustments['date'] = pd.Timestamp.now().date()
+            team_adjustments.to_csv(adjustments_path, index=False)
 
             print(f"✓ Saved recent minutes to {minutes_path}")
             print(f"✓ Saved depth charts to {depth_path}")
+            if not injuries.empty:
+                print(f"✓ Saved injury report to {injuries_path}")
+            print(f"✓ Saved player impact to {impact_path}")
+            print(f"✓ Saved team adjustments to {adjustments_path}")
         except Exception as e:
             print(f"✗ Error fetching player data: {e}")
             logger.error("Failed to fetch player data: %s", e, exc_info=True)
