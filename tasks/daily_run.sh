@@ -35,3 +35,7 @@ uv run python collect_data.py --skip-games --player-data --player-season-start "
 uv run python collect_data.py --skip-games --combine-seasons --combine-output data/all_seasons_latest.csv \
   --start-year "$HIST_START_YEAR" --end-year "$SEASON_START" --yes
 uv run python predict_today.py
+
+if [[ -n "${IMESSAGE_TO:-}" ]]; then
+  uv run python send_imessage_predictions.py --to "$IMESSAGE_TO"
+fi

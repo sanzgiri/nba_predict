@@ -7,6 +7,7 @@
 - Backtest calibration script added; `player_adj_elo_scale` set to 100 based on validation log loss.
 - Automation: `tasks/daily_run.sh` refreshes season data, player logs, injuries, recombines seasons, then runs predictions.
 - Scheduling: launchd plist for a daily 10:30 ET-equivalent run (adjust for local time).
+- Optional iMessage/SMS notifications after predictions (enable via `IMESSAGE_TO`).
 
 ## Next Steps
 - Wire a stable NBA injury report URL or a local report file into the daily job to avoid scraping risk.

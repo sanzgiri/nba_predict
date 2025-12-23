@@ -33,6 +33,8 @@
     <string></string>
     <key>FORCE_REFRESH</key>
     <string>1</string>
+    <key>IMESSAGE_TO</key>
+    <string></string>
   </dict>
   <key>StandardOutPath</key>
   <string>/Users/sanzgiri/nba_predictions/logs/launchd_daily.log</string>

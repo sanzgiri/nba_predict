@@ -90,6 +90,7 @@ Install:
 cp tasks/launchd/com.sanzgiri.nba_predictions.daily.plist ~/Library/LaunchAgents/
 launchctl load -w ~/Library/LaunchAgents/com.sanzgiri.nba_predictions.daily.plist
 ```
+Edit `IMESSAGE_TO` in the plist to enable text delivery.
 
 Manual run:
 ```bash
@@ -101,11 +102,18 @@ Manual run without launchd:
 tasks/daily_run.sh
 ```
 
+To send iMessage/SMS predictions after each run, set `IMESSAGE_TO`:
+```bash
+IMESSAGE_TO="+15035551212,+14155550123" tasks/daily_run.sh
+```
+If there are no games, the message will say "No games today."
+
 Logs:
 - `logs/launchd_daily.log`
 - `logs/launchd_daily.err`
 
 If you move the repo, update `WorkingDirectory` and log paths in the plist. To supply an NBA injury report URL, set `INJURY_URL` in the plist.
+For iMessage/SMS, set `IMESSAGE_TO` in the plist (e.g., `+15035551212`).
 
 ## 4) Validate the setup
 ```bash
