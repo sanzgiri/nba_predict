@@ -6,6 +6,7 @@ Make predictions for today's NBA games using ELO ratings
 import sys
 from pathlib import Path
 import pandas as pd
+import pytz
 
 # Add project root to path
 project_root = Path(__file__).parent
@@ -23,11 +24,12 @@ def _get_game_date(game: pd.Series) -> pd.Timestamp:
         try:
             parsed = pd.to_datetime(game_time, utc=True)
             if isinstance(parsed, pd.Timestamp) and parsed.tzinfo is not None:
-                parsed = parsed.tz_convert(None)
-            return parsed.normalize()
+                parsed = parsed.tz_convert("US/Eastern")
+            return parsed.normalize().tz_convert(None)
         except Exception:
             pass
-    return pd.Timestamp.now().normalize()
+    tz = pytz.timezone("US/Eastern")
+    return pd.Timestamp.now(tz=tz).normalize().tz_convert(None)
 
 def _pick_training_file() -> Path | None:
     data_dir = Path("data")
@@ -179,7 +181,8 @@ def main():
     print(predictor.get_rankings(top_n=10).to_string(index=False))
     
     # Save predictions
-    predictions_file = Path("predictions") / f"predictions_{pd.Timestamp.now().strftime('%Y%m%d')}.csv"
+    et_now = pd.Timestamp.now(tz="US/Eastern")
+    predictions_file = Path("predictions") / f"predictions_{et_now.strftime('%Y%m%d')}.csv"
     predictions_file.parent.mkdir(exist_ok=True)
     
     # Create predictions dataframe

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+import pytz
 import requests
 from unidecode import unidecode
 
@@ -650,7 +651,11 @@ class NBADataFetcher:
     
     @retry_on_failure(max_retries=3, delay=2.0)
     @rate_limit(calls_per_minute=60)
-    def get_todays_games(self) -> pd.DataFrame:
+    def _et_today(self) -> datetime.date:
+        tz = pytz.timezone("US/Eastern")
+        return datetime.now(tz).date()
+
+    def get_todays_games(self, target_date: Optional[datetime.date] = None) -> pd.DataFrame:
         """
         Get today's scheduled games
         
@@ -658,8 +663,14 @@ class NBADataFetcher:
             DataFrame with today's games
         """
         try:
+            target_date = target_date or self._et_today()
             # Use the live scoreboard endpoint
-            board = scoreboard.ScoreBoard()
+            used_explicit_date = False
+            try:
+                board = scoreboard.ScoreBoard(date=target_date.strftime("%Y-%m-%d"))
+                used_explicit_date = True
+            except TypeError:
+                board = scoreboard.ScoreBoard()
             games_data = board.games.get_dict()
             
             today_games = []
@@ -675,6 +686,12 @@ class NBADataFetcher:
                 today_games.append(game_data)
             
             df = pd.DataFrame(today_games)
+            if not df.empty and 'game_time' in df.columns:
+                df['game_date_et'] = pd.to_datetime(df['game_time'], utc=True, errors='coerce')
+                df['game_date_et'] = df['game_date_et'].dt.tz_convert("US/Eastern").dt.date
+                filtered = df[df['game_date_et'] == target_date].copy()
+                if not filtered.empty or used_explicit_date:
+                    df = filtered
             logger.info(f"Found {len(df)} games scheduled for today")
             return df
             

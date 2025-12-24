@@ -8,9 +8,11 @@ import csv
 import os
 import re
 import subprocess
-from datetime import date
+from datetime import datetime
 from pathlib import Path
 from typing import List
+
+import pytz
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,7 +55,8 @@ def _to_float(value: object, fallback: float = 0.0) -> float:
 
 
 def _build_message(pred_file: Path) -> str:
-    today = date.today().strftime("%Y-%m-%d")
+    tz = pytz.timezone("US/Eastern")
+    today = datetime.now(tz).strftime("%Y-%m-%d")
     header = f"NBA Predictions {today}"
     if not pred_file.exists():
         return f"{header}\nNo games today."
@@ -115,7 +118,8 @@ def main() -> None:
     if not numbers:
         raise SystemExit("No recipient provided. Set IMESSAGE_TO or pass --to.")
 
-    today_key = date.today().strftime("%Y%m%d")
+    tz = pytz.timezone("US/Eastern")
+    today_key = datetime.now(tz).strftime("%Y%m%d")
     pred_file = (
         Path(args.predictions_file)
         if args.predictions_file
