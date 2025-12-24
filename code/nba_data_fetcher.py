@@ -681,6 +681,18 @@ class NBADataFetcher:
                 if pd.isna(game_id) or pd.isna(home_id) or pd.isna(away_id):
                     continue
 
+                game_date_raw = row.get('GAME_DATE_EST') or row.get('GAME_DATE')
+                if game_date_raw:
+                    parsed_date = pd.to_datetime(game_date_raw, errors='coerce')
+                    if pd.isna(parsed_date):
+                        continue
+                    if isinstance(parsed_date, pd.Timestamp) and parsed_date.tzinfo is not None:
+                        parsed_date = parsed_date.tz_convert("US/Eastern")
+                    if parsed_date.date() != target_date:
+                        continue
+                else:
+                    continue
+
                 home_abbrev = line_score[
                     (line_score['GAME_ID'] == game_id) & (line_score['TEAM_ID'] == home_id)
                 ]['TEAM_ABBREVIATION']
@@ -740,13 +752,12 @@ class NBADataFetcher:
                 df['game_date_et'] = pd.to_datetime(df['game_time'], utc=True, errors='coerce')
                 df['game_date_et'] = df['game_date_et'].dt.tz_convert("US/Eastern").dt.date
                 filtered = df[df['game_date_et'] == target_date].copy()
-                if used_explicit_date:
-                    df = filtered
-                elif not filtered.empty:
-                    df = filtered
-                else:
-                    logger.warning("Live scoreboard did not include target date; falling back to scoreboardv2")
-                    df = self._get_games_scoreboardv2(target_date)
+
+            if filtered.empty:
+                logger.warning("Live scoreboard did not include target date; falling back to scoreboardv2")
+                df = self._get_games_scoreboardv2(target_date)
+            else:
+                df = filtered
             logger.info(f"Found {len(df)} games scheduled for today")
             return df
             
