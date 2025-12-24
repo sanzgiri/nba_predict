@@ -655,6 +655,55 @@ class NBADataFetcher:
         tz = pytz.timezone("US/Eastern")
         return datetime.now(tz).date()
 
+    def _get_games_scoreboardv2(self, target_date: datetime.date) -> pd.DataFrame:
+        try:
+            board = scoreboardv2.ScoreboardV2(game_date=target_date.strftime("%m/%d/%Y"))
+            frames = board.get_data_frames()
+            header = next(
+                (frame for frame in frames if 'HOME_TEAM_ID' in frame.columns and 'GAME_ID' in frame.columns),
+                pd.DataFrame()
+            )
+            line_score = next(
+                (frame for frame in frames if 'TEAM_ABBREVIATION' in frame.columns and 'TEAM_ID' in frame.columns),
+                pd.DataFrame()
+            )
+            if header.empty or line_score.empty:
+                return pd.DataFrame()
+
+            records = []
+            tz = pytz.timezone("US/Eastern")
+            date_anchor = tz.localize(datetime.combine(target_date, datetime.min.time())).isoformat()
+
+            for _, row in header.iterrows():
+                game_id = row.get('GAME_ID')
+                home_id = row.get('HOME_TEAM_ID')
+                away_id = row.get('VISITOR_TEAM_ID') or row.get('AWAY_TEAM_ID')
+                if pd.isna(game_id) or pd.isna(home_id) or pd.isna(away_id):
+                    continue
+
+                home_abbrev = line_score[
+                    (line_score['GAME_ID'] == game_id) & (line_score['TEAM_ID'] == home_id)
+                ]['TEAM_ABBREVIATION']
+                away_abbrev = line_score[
+                    (line_score['GAME_ID'] == game_id) & (line_score['TEAM_ID'] == away_id)
+                ]['TEAM_ABBREVIATION']
+
+                if home_abbrev.empty or away_abbrev.empty:
+                    continue
+
+                records.append({
+                    'game_id': game_id,
+                    'home_team': home_abbrev.iloc[0],
+                    'away_team': away_abbrev.iloc[0],
+                    'game_time': date_anchor,
+                    'status': row.get('GAME_STATUS_TEXT', row.get('GAME_STATUS_ID', '')),
+                })
+
+            return pd.DataFrame(records)
+        except Exception as exc:
+            logger.warning("ScoreboardV2 fallback failed: %s", exc)
+            return pd.DataFrame()
+
     def get_todays_games(self, target_date: Optional[datetime.date] = None) -> pd.DataFrame:
         """
         Get today's scheduled games
@@ -686,12 +735,18 @@ class NBADataFetcher:
                 today_games.append(game_data)
             
             df = pd.DataFrame(today_games)
+            filtered = pd.DataFrame()
             if not df.empty and 'game_time' in df.columns:
                 df['game_date_et'] = pd.to_datetime(df['game_time'], utc=True, errors='coerce')
                 df['game_date_et'] = df['game_date_et'].dt.tz_convert("US/Eastern").dt.date
                 filtered = df[df['game_date_et'] == target_date].copy()
-                if not filtered.empty or used_explicit_date:
+                if used_explicit_date:
                     df = filtered
+                elif not filtered.empty:
+                    df = filtered
+                else:
+                    logger.warning("Live scoreboard did not include target date; falling back to scoreboardv2")
+                    df = self._get_games_scoreboardv2(target_date)
             logger.info(f"Found {len(df)} games scheduled for today")
             return df
             
