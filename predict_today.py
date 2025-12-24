@@ -62,6 +62,26 @@ def _load_team_adjustments() -> dict:
         return {}
     return dict(zip(df['team'], df['player_adj_elo']))
 
+def _predictions_output_path() -> Path:
+    et_now = pd.Timestamp.now(tz="US/Eastern")
+    predictions_file = Path("predictions") / f"predictions_{et_now.strftime('%Y%m%d')}.csv"
+    predictions_file.parent.mkdir(exist_ok=True)
+    return predictions_file
+
+def _prediction_columns() -> list[str]:
+    return [
+        'date',
+        'away_team',
+        'home_team',
+        'away_elo',
+        'home_elo',
+        'away_player_adj_elo',
+        'home_player_adj_elo',
+        'predicted_away_score',
+        'predicted_home_score',
+        'home_win_probability',
+        'predicted_winner',
+    ]
 
 def main():
     print("=" * 70)
@@ -105,9 +125,13 @@ def main():
     # Get today's games
     print("\nFetching today's games...")
     today_games = fetcher.get_todays_games()
+    predictions_file = _predictions_output_path()
     
     if len(today_games) == 0:
         print("No games scheduled for today.")
+        empty_df = pd.DataFrame(columns=_prediction_columns())
+        empty_df.to_csv(predictions_file, index=False)
+        print(f"\n✓ Predictions saved to: {predictions_file}")
         return
     
     print(f"Found {len(today_games)} games today!\n")
@@ -182,9 +206,6 @@ def main():
     
     # Save predictions
     et_now = pd.Timestamp.now(tz="US/Eastern")
-    predictions_file = Path("predictions") / f"predictions_{et_now.strftime('%Y%m%d')}.csv"
-    predictions_file.parent.mkdir(exist_ok=True)
-    
     # Create predictions dataframe
     pred_df = pd.DataFrame(predictions)
     pred_df.to_csv(predictions_file, index=False)
