@@ -667,12 +667,13 @@ class NBADataFetcher:
                 (frame for frame in frames if 'TEAM_ABBREVIATION' in frame.columns and 'TEAM_ID' in frame.columns),
                 pd.DataFrame()
             )
-            if header.empty or line_score.empty:
+            if header.empty:
                 return pd.DataFrame()
 
             records = []
             tz = pytz.timezone("US/Eastern")
             date_anchor = tz.localize(datetime.combine(target_date, datetime.min.time())).isoformat()
+            team_id_map = {team['id']: team['abbreviation'] for team in self.teams}
 
             for _, row in header.iterrows():
                 game_id = row.get('GAME_ID')
@@ -693,20 +694,33 @@ class NBADataFetcher:
                 else:
                     continue
 
-                home_abbrev = line_score[
-                    (line_score['GAME_ID'] == game_id) & (line_score['TEAM_ID'] == home_id)
-                ]['TEAM_ABBREVIATION']
-                away_abbrev = line_score[
-                    (line_score['GAME_ID'] == game_id) & (line_score['TEAM_ID'] == away_id)
-                ]['TEAM_ABBREVIATION']
+                try:
+                    home_id_int = int(home_id)
+                    away_id_int = int(away_id)
+                except (TypeError, ValueError):
+                    continue
 
-                if home_abbrev.empty or away_abbrev.empty:
+                home_abbrev = team_id_map.get(home_id_int)
+                away_abbrev = team_id_map.get(away_id_int)
+                if not home_abbrev or not away_abbrev:
+                    if not line_score.empty:
+                        home_match = line_score[
+                            (line_score['GAME_ID'] == game_id) & (line_score['TEAM_ID'] == home_id_int)
+                        ]['TEAM_ABBREVIATION']
+                        away_match = line_score[
+                            (line_score['GAME_ID'] == game_id) & (line_score['TEAM_ID'] == away_id_int)
+                        ]['TEAM_ABBREVIATION']
+                        if not home_match.empty:
+                            home_abbrev = home_match.iloc[0]
+                        if not away_match.empty:
+                            away_abbrev = away_match.iloc[0]
+                if not home_abbrev or not away_abbrev:
                     continue
 
                 records.append({
                     'game_id': game_id,
-                    'home_team': home_abbrev.iloc[0],
-                    'away_team': away_abbrev.iloc[0],
+                    'home_team': home_abbrev,
+                    'away_team': away_abbrev,
                     'game_time': date_anchor,
                     'status': row.get('GAME_STATUS_TEXT', row.get('GAME_STATUS_ID', '')),
                 })
